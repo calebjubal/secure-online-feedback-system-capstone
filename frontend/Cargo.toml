@@ -1,0 +1,9 @@
+[package]
+name = "feedback-frontend"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+[dependencies]
+leptos = { version = "0.7", features = ["csr"] }
