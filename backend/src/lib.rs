@@ -8,11 +8,17 @@ use features::feedback_store::FeedbackStore;
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
 
 pub fn app() -> Router {
+    app_with_admin_token(None)
+}
+
+pub fn app_with_admin_token(admin_token: Option<String>) -> Router {
     let feedback_store = FeedbackStore::default();
     Router::new()
         .nest(
             "/api",
-            features::health::routes().merge(features::feedback_api::routes(feedback_store)),
+            features::health::routes()
+                .merge(features::feedback_api::routes(feedback_store.clone()))
+                .merge(features::admin_review::routes(feedback_store, admin_token)),
         )
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
@@ -97,6 +103,32 @@ mod tests {
             serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
             serde_json::json!({"error":"validation_failed","message":"message must not be empty"})
         );
+    }
+
+    #[tokio::test]
+    async fn admin_review_requires_a_configured_token() {
+        let response = app_with_admin_token(Some("review-token".into()))
+            .oneshot(
+                Request::get("/api/admin/feedback")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_review_route_is_disabled_without_a_token() {
+        let response = app()
+            .oneshot(
+                Request::get("/api/admin/feedback")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
