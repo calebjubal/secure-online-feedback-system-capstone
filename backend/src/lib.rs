@@ -3,12 +3,23 @@
 mod features;
 
 use axum::{extract::DefaultBodyLimit, Router};
+use features::feedback_store::FeedbackStore;
 
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
 
 pub fn app() -> Router {
+    app_with_admin_token(None)
+}
+
+pub fn app_with_admin_token(admin_token: Option<String>) -> Router {
+    let feedback_store = FeedbackStore::default();
     Router::new()
-        .nest("/api", features::health::routes())
+        .nest(
+            "/api",
+            features::health::routes()
+                .merge(features::feedback_api::routes(feedback_store.clone()))
+                .merge(features::admin_review::routes(feedback_store, admin_token)),
+        )
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
 }
 
@@ -47,7 +58,71 @@ mod tests {
         let response = app()
             .oneshot(
                 Request::builder()
-                    .uri("/api/feedback")
+                    .uri("/api/not-a-route")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn feedback_submission_returns_an_opaque_receipt() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"category":"teaching","message":"Helpful examples"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        let receipt: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(receipt["id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn feedback_submission_rejects_empty_messages() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"category":"other","message":" "}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"validation_failed","message":"message must not be empty"})
+        );
+    }
+
+    #[tokio::test]
+    async fn admin_review_requires_a_configured_token() {
+        let response = app_with_admin_token(Some("review-token".into()))
+            .oneshot(
+                Request::get("/api/admin/feedback")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_review_route_is_disabled_without_a_token() {
+        let response = app()
+            .oneshot(
+                Request::get("/api/admin/feedback")
                     .body(Body::empty())
                     .unwrap(),
             )

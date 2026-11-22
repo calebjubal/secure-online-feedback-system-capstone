@@ -15,12 +15,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .parse()?;
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(address = %listener.local_addr()?, "API listening");
-    axum::serve(listener, feedback_backend::app())
-        .with_graceful_shutdown(async {
-            if let Err(error) = tokio::signal::ctrl_c().await {
-                tracing::error!(%error, "Failed to listen for shutdown signal");
-            }
-        })
-        .await?;
+    let admin_token = std::env::var("ADMIN_REVIEW_TOKEN").ok();
+    axum::serve(
+        listener,
+        feedback_backend::app_with_admin_token(admin_token),
+    )
+    .with_graceful_shutdown(async {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::error!(%error, "Failed to listen for shutdown signal");
+        }
+    })
+    .await?;
     Ok(())
 }

@@ -14,3 +14,12 @@ p, li { line-height: 1.7; }
 section { margin-top: 3rem; border: 1px solid #44616e; border-radius: 1rem; padding: clamp(1.2rem, 4vw, 2rem); background: #1a2c38; }
 h2 { margin-top: 0; }
 ul { padding-left: 1.2rem; }
+form { display: grid; gap: .75rem; max-width: 42rem; }
+label { font-weight: 700; }
+select, textarea, button { font: inherit; }
+select, textarea { width: 100%; border: 1px solid #70919f; border-radius: .45rem; padding: .7rem; color: #edf4f7; background: #101b24; }
+textarea { resize: vertical; }
+button { justify-self: start; border: 0; border-radius: .45rem; padding: .75rem 1rem; color: #102129; background: #98e8de; font-weight: 800; cursor: pointer; }
+button:hover { background: #c0fff7; }
+button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid #98e8de; outline-offset: 3px; }
+.status { min-height: 1.7em; color: #c9e6d7; }
