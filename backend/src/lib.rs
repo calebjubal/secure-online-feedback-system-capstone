@@ -52,7 +52,7 @@ mod tests {
         let response = app()
             .oneshot(
                 Request::builder()
-                    .uri("/api/feedback")
+                    .uri("/api/not-a-route")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -67,7 +67,9 @@ mod tests {
             .oneshot(
                 Request::post("/api/feedback")
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"category":"teaching","message":"Helpful examples"}"#))
+                    .body(Body::from(
+                        r#"{"category":"teaching","message":"Helpful examples"}"#,
+                    ))
                     .unwrap(),
             )
             .await

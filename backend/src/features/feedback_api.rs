@@ -8,10 +8,7 @@ use axum::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::{
-    feedback::FeedbackSubmission,
-    feedback_store::FeedbackStore,
-};
+use super::{feedback::FeedbackSubmission, feedback_store::FeedbackStore};
 
 pub fn routes(store: FeedbackStore) -> Router {
     Router::new()
@@ -25,10 +22,7 @@ async fn submit(
 ) -> Result<(StatusCode, Json<FeedbackReceipt>), ApiError> {
     let feedback = submission.validate().map_err(ApiError::validation)?;
     let record = store.submit(feedback);
-    Ok((
-        StatusCode::CREATED,
-        Json(FeedbackReceipt { id: record.id }),
-    ))
+    Ok((StatusCode::CREATED, Json(FeedbackReceipt { id: record.id })))
 }
 
 #[derive(Serialize)]
