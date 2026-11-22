@@ -1,0 +1,48 @@
+# Feedback API contract (development foundation)
+
+This document defines the first API contract before a persistent data store or
+identity provider is introduced. It is deliberately small so the validation
+and authorization boundaries are clear and testable.
+
+## Submit feedback
+
+`POST /api/feedback`
+
+```json
+{
+  "category": "teaching",
+  "message": "The weekly examples made the topic much easier to understand."
+}
+```
+
+- `category` must be one of `teaching`, `course-content`, `facilities`, or
+  `other`.
+- `message` is required after trimming and may contain 1–2,000 Unicode
+  characters.
+- The endpoint does not accept a name, email address, account identifier, or
+  other direct identifier. Do not add those fields without an approved
+  anonymity policy.
+- A successful submission receives `201 Created` and an opaque feedback ID.
+
+## Administrative review
+
+`GET /api/admin/feedback`
+
+The development server protects this route with an `x-admin-token` header.
+It is disabled unless `ADMIN_REVIEW_TOKEN` is configured. This is a temporary
+development guard, **not** a replacement for institutional authentication,
+role-based authorization, or row-level database policies.
+
+## Error responses
+
+Expected client errors return JSON in this form:
+
+```json
+{
+  "error": "validation_failed",
+  "message": "message must not be empty"
+}
+```
+
+The API never includes the submitted feedback text in an error response or
+application log.
