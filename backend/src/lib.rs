@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn buffered_request_bodies_are_limited() {
-        // Test-only route: no feedback ingestion endpoint is exposed yet.
+        // Exercise the buffered-extractor boundary independently of validation.
         let router = Router::new()
             .route("/", post(|_: String| async { StatusCode::NO_CONTENT }))
             .layer(DefaultBodyLimit::max(MAX_BODY_BYTES));

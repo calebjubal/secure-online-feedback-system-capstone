@@ -29,7 +29,17 @@ async fn submit(
     if content_type != Some("application/json") {
         return Err(ApiError::unsupported_media_type());
     }
-    let Json(submission) = payload.map_err(|_| ApiError::invalid_json())?;
+    let Json(submission) = payload.map_err(|error| {
+        if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            ApiError {
+                status: StatusCode::PAYLOAD_TOO_LARGE,
+                code: "payload_too_large",
+                message: "Request body must be 16 KiB or smaller.",
+            }
+        } else {
+            ApiError::invalid_json()
+        }
+    })?;
     let feedback = submission.validate().map_err(ApiError::validation)?;
     let record = store.submit(feedback).await.map_err(|_| ApiError {
         status: StatusCode::SERVICE_UNAVAILABLE,
