@@ -1,4 +1,5 @@
 mod feedback;
+mod api;
 
 use leptos::prelude::*;
 
