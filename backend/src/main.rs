@@ -11,7 +11,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .init();
     let config = feedback_backend::config::Config::from_env().map_err(std::io::Error::other)?;
-    let app = feedback_backend::persistent_app(&config.database_url, Some(config.admin_token))
+    let app = feedback_backend::persistent_app(&config.database_url, &config)
         .await
         .map_err(|_| {
             std::io::Error::other("Cannot connect to feedback database or schema is missing")

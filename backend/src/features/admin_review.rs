@@ -1,116 +1,68 @@
+use super::{
+    admin_session::AdminAuth,
+    feedback_store::{FeedbackRecord, FeedbackStore},
+};
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
-
-use super::feedback_store::{FeedbackRecord, FeedbackStore};
-use serde::Deserialize;
-
-const MIN_ADMIN_TOKEN_BYTES: usize = 32;
-const DEFAULT_PAGE_SIZE: usize = 50;
-const MAX_PAGE_SIZE: usize = 100;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
-struct AdminReviewState {
+struct ReviewState {
     store: FeedbackStore,
-    token: String,
+    auth: AdminAuth,
 }
 
-/// Exposes the review route only when a development token is configured.
-pub fn routes(store: FeedbackStore, token: Option<String>) -> Router {
-    let Some(token) = token.filter(|value| value.len() >= MIN_ADMIN_TOKEN_BYTES) else {
+pub fn routes(store: FeedbackStore, auth: AdminAuth) -> Router {
+    if !auth.enabled() {
         return Router::new();
-    };
+    }
     Router::new()
         .route("/admin/feedback", get(list_feedback))
-        .with_state(AdminReviewState { store, token })
+        .with_state(ReviewState { store, auth })
+}
+
+#[derive(Serialize)]
+struct FeedbackPage {
+    items: Vec<FeedbackRecord>,
+    has_more: bool,
+    next_offset: Option<usize>,
 }
 
 async fn list_feedback(
-    State(state): State<AdminReviewState>,
+    State(state): State<ReviewState>,
     headers: HeaderMap,
-    Query(page): Query<Pagination>,
-) -> Result<Json<Vec<FeedbackRecord>>, StatusCode> {
-    let token = headers
-        .get("x-admin-token")
-        .and_then(|value| value.to_str().ok());
-    if token.is_none_or(|value| !constant_time_equal(value.as_bytes(), state.token.as_bytes())) {
+    page: Result<Query<Pagination>, axum::extract::rejection::QueryRejection>,
+) -> Result<Json<FeedbackPage>, StatusCode> {
+    if !state.auth.authorized(&headers) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let limit = page.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
+    let Query(page) = page.map_err(|_| StatusCode::BAD_REQUEST)?;
+    let limit = page.limit.unwrap_or(20);
     let offset = page.offset.unwrap_or_default();
-    Ok(Json(
-        state
-            .store
-            .list_page(offset, limit)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-    ))
+    if !(1..=100).contains(&limit) || offset > 1_000_000 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut items = state
+        .store
+        .list_page(offset, limit + 1)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let has_more = items.len() > limit;
+    items.truncate(limit);
+    Ok(Json(FeedbackPage {
+        items,
+        has_more,
+        next_offset: has_more.then_some(offset + limit),
+    }))
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Pagination {
     limit: Option<usize>,
     offset: Option<usize>,
-}
-
-fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    for index in 0..left.len().max(right.len()) {
-        difference |= usize::from(
-            left.get(index).copied().unwrap_or_default()
-                ^ right.get(index).copied().unwrap_or_default(),
-        );
-    }
-    difference == 0
-}
-
-#[cfg(test)]
-mod tests {
-    use axum::{body::to_bytes, body::Body, http::Request};
-    use tower::ServiceExt;
-
-    use super::{constant_time_equal, routes};
-    use crate::features::{
-        feedback::{FeedbackCategory, ValidatedFeedback},
-        feedback_store::FeedbackStore,
-    };
-
-    #[test]
-    fn compares_tokens_without_accepting_prefixes() {
-        assert!(constant_time_equal(b"same-token", b"same-token"));
-        assert!(!constant_time_equal(b"same-token", b"same-token-plus"));
-        assert!(!constant_time_equal(b"same-token", b"different"));
-    }
-
-    #[tokio::test]
-    async fn authorized_review_returns_a_bounded_page() {
-        let store = FeedbackStore::default();
-        for message in ["first", "second"] {
-            store
-                .submit(ValidatedFeedback {
-                    category: FeedbackCategory::Other,
-                    message: message.into(),
-                })
-                .await
-                .unwrap();
-        }
-        let response = routes(store, Some("review-token-that-is-at-least-32-bytes".into()))
-            .oneshot(
-                Request::get("/admin/feedback?limit=1")
-                    .header("x-admin-token", "review-token-that-is-at-least-32-bytes")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), axum::http::StatusCode::OK);
-        let body = to_bytes(response.into_body(), 2048).await.unwrap();
-        let records: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0]["message"], "second");
-    }
 }

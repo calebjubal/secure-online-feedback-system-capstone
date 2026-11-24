@@ -10,6 +10,7 @@ use axum::{
     response::Response,
     Router,
 };
+use features::admin_session::AdminAuth;
 use features::feedback_store::FeedbackStore;
 
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
@@ -22,26 +23,34 @@ pub fn app() -> Router {
 #[cfg(test)]
 pub fn app_with_admin_token(admin_token: Option<String>) -> Router {
     let feedback_store = FeedbackStore::default();
-    router(feedback_store, admin_token)
+    router(
+        feedback_store,
+        AdminAuth::new(admin_token, "http://127.0.0.1:8080".into(), false),
+    )
 }
 
 pub async fn persistent_app(
     database_url: &str,
-    admin_token: Option<String>,
+    config: &config::Config,
 ) -> Result<Router, sqlx::Error> {
     Ok(router(
         FeedbackStore::connect(database_url).await?,
-        admin_token,
+        AdminAuth::new(
+            Some(config.admin_token.clone()),
+            config.origin.clone(),
+            config.secure_cookies,
+        ),
     ))
 }
 
-fn router(feedback_store: FeedbackStore, admin_token: Option<String>) -> Router {
+fn router(feedback_store: FeedbackStore, auth: AdminAuth) -> Router {
     Router::new()
         .nest(
             "/api",
             features::health::routes()
                 .merge(features::feedback_api::routes(feedback_store.clone()))
-                .merge(features::admin_review::routes(feedback_store, admin_token)),
+                .merge(features::admin_review::routes(feedback_store, auth.clone()))
+                .merge(features::admin_session::routes(auth)),
         )
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(middleware::from_fn(security_headers))
