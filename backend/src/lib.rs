@@ -34,6 +34,10 @@ async fn security_headers(request: Request<axum::body::Body>, next: Next) -> Res
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
+        header::HeaderName::from_static("x-request-id"),
+        HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).expect("UUID is a valid header"),
+    );
+    headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
@@ -80,6 +84,7 @@ mod tests {
         assert_eq!(response.headers()["x-content-type-options"], "nosniff");
         assert_eq!(response.headers()["x-frame-options"], "DENY");
         assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(response.headers()["x-request-id"].to_str().unwrap().len() == 36);
         let body = to_bytes(response.into_body(), 1024).await.unwrap();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
