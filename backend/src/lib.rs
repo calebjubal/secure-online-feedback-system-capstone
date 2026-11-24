@@ -140,6 +140,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn feedback_submission_rejects_non_json_content_types() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "text/plain")
+                    .body(Body::from("feedback"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"unsupported_media_type","message":"content-type must be application/json"})
+        );
+    }
+
+    #[tokio::test]
+    async fn feedback_submission_rejects_malformed_json_without_echoing_body() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"message":"unterminated"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"invalid_json","message":"request body must be valid JSON"})
+        );
+    }
+
+    #[tokio::test]
     async fn feedback_submission_rejects_unexpected_fields() {
         let response = app()
             .oneshot(
@@ -152,7 +190,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
