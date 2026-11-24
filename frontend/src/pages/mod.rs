@@ -1,12 +1,15 @@
-mod feedback;
-mod api;
 mod admin;
+mod api;
+mod feedback;
+mod inbox;
 
 use leptos::prelude::*;
 
 #[component]
 pub fn HomePage() -> impl IntoView {
-    let admin = web_sys::window().and_then(|window| window.location().pathname().ok()).is_some_and(|path| path.starts_with("/admin"));
+    let admin = web_sys::window()
+        .and_then(|window| window.location().pathname().ok())
+        .is_some_and(|path| path.starts_with("/admin"));
     view! {
         <a class="skip-link" href="#main">"Skip to content"</a>
         <header class="site-header">

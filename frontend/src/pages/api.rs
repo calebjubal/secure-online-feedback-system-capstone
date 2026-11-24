@@ -1,7 +1,9 @@
 use serde::Deserialize;
 
 #[derive(Clone, Deserialize)]
-pub struct Receipt { pub id: String }
+pub struct Receipt {
+    pub id: String,
+}
 
 #[derive(Clone, Deserialize)]
 pub struct FeedbackRecord {

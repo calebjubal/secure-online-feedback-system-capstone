@@ -6,9 +6,16 @@ pub fn AdminPortal() -> impl IntoView {
     let (authorized, set_authorized) = signal(false);
     let (session_notice, set_session_notice) = signal(None::<String>);
     spawn_local(async move {
-        match gloo_net::http::Request::get("/api/admin/session").send().await {
-            Ok(response) => { set_authorized.set(response.status() == 204); }
-            Err(_) => set_session_notice.set(Some("The service is unavailable. Please check your connection.".into())),
+        match gloo_net::http::Request::get("/api/admin/session")
+            .send()
+            .await
+        {
+            Ok(response) => {
+                set_authorized.set(response.status() == 204);
+            }
+            Err(_) => set_session_notice.set(Some(
+                "The service is unavailable. Please check your connection.".into(),
+            )),
         }
         set_checking.set(false);
     });
@@ -28,7 +35,7 @@ pub fn AdminPortal() -> impl IntoView {
             </div>
             <p class="session-notice" role="status">{move || session_notice.get()}</p>
             {move || if checking.get() { view! { <div class="state-panel" role="status">"Checking your session…"</div> }.into_any() }
-                else if authorized.get() { view! { <section class="inbox-card"><h2>"Feedback inbox"</h2><p>"You’re signed in."</p></section> }.into_any() }
+                else if authorized.get() { view! { <super::inbox::Inbox on_expired=Callback::new(move |()| { set_authorized.set(false); set_session_notice.set(Some("Your session has ended. Sign in again to view feedback.".into())); })/> }.into_any() }
                 else { view! { <SignIn on_signed_in=Callback::new(move |()| { set_session_notice.set(None); set_authorized.set(true); })/> }.into_any() }}
         </main>
     }
@@ -41,14 +48,18 @@ fn SignIn(on_signed_in: Callback<()>) -> impl IntoView {
     let (error, set_error) = signal(None::<String>);
     let submit = move |event: leptos::ev::SubmitEvent| {
         event.prevent_default();
-        if busy.get_untracked() { return; }
+        if busy.get_untracked() {
+            return;
+        }
         let secret = credential.get_untracked();
         set_credential.set(String::new());
         set_busy.set(true);
         set_error.set(None);
         spawn_local(async move {
             let payload = serde_json::json!({"credential": secret});
-            let request = gloo_net::http::Request::post("/api/admin/session").header("content-type", "application/json").body(payload.to_string());
+            let request = gloo_net::http::Request::post("/api/admin/session")
+                .header("content-type", "application/json")
+                .body(payload.to_string());
             match request {
                 Ok(request) => match request.send().await {
                     Ok(response) if response.status() == 204 => on_signed_in.run(()),

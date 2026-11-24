@@ -9,17 +9,24 @@ pub fn FeedbackForm() -> impl IntoView {
     let (receipt, set_receipt) = signal(None::<String>);
     let submit = move |event: leptos::ev::SubmitEvent| {
         event.prevent_default();
-        if submitting.get_untracked() { return; }
+        if submitting.get_untracked() {
+            return;
+        }
         let text = message.get_untracked().trim().to_owned();
         if text.is_empty() || text.chars().count() > 2000 {
-            set_status.set(Some("Enter feedback between 1 and 2,000 characters.".into()));
+            set_status.set(Some(
+                "Enter feedback between 1 and 2,000 characters.".into(),
+            ));
             return;
         }
         set_submitting.set(true);
         set_status.set(None);
         spawn_local(async move {
-            let payload = serde_json::json!({"category": category.get_untracked(), "message": text});
-            let request = gloo_net::http::Request::post("/api/feedback").header("content-type", "application/json").body(payload.to_string());
+            let payload =
+                serde_json::json!({"category": category.get_untracked(), "message": text});
+            let request = gloo_net::http::Request::post("/api/feedback")
+                .header("content-type", "application/json")
+                .body(payload.to_string());
             match request {
                 Ok(request) => match request.send().await {
                     Ok(response) if response.status() == 201 => {
