@@ -19,6 +19,8 @@ and authorization boundaries are clear and testable.
   `other`.
 - `message` is required after trimming and may contain 1–2,000 Unicode
   characters.
+- No other JSON fields are accepted. This keeps direct identifiers out of the
+  anonymous contract unless the anonymity policy is deliberately changed.
 - The endpoint does not accept a name, email address, account identifier, or
   other direct identifier. Do not add those fields without an approved
   anonymity policy.
@@ -29,9 +31,14 @@ and authorization boundaries are clear and testable.
 `GET /api/admin/feedback`
 
 The development server protects this route with an `x-admin-token` header.
-It is disabled unless `ADMIN_REVIEW_TOKEN` is configured. This is a temporary
-development guard, **not** a replacement for institutional authentication,
-role-based authorization, or row-level database policies.
+It is disabled unless `ADMIN_REVIEW_TOKEN` is configured with at least 32
+bytes. Token comparison does not return early on the first mismatched byte.
+This is a temporary development guard, **not** a replacement for institutional
+authentication, role-based authorization, or row-level database policies.
+
+API responses set `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, a restrictive content security policy, and a
+no-referrer policy. The server also rejects request bodies over 16 KiB.
 
 ## Error responses
 

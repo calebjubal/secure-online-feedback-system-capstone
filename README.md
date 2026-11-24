@@ -4,12 +4,12 @@ A Rust capstone for student feedback and authorized administrative review, guide
 
 ## Status
 
-Development starter only. No feedback is collected or stored yet. The diagram's 500K+ requests is an unverified future target with no defined time window. Rust memory safety does not guarantee zero XSS.
+Development foundation only. Submissions are stored in process memory and are lost when the server restarts. The diagram's 500K+ requests is an unverified future target with no defined time window. Rust memory safety does not guarantee zero XSS.
 
 | Layer | Starter | Planned |
 | --- | --- | --- |
 | Frontend | Leptos WebAssembly + Trunk feedback form | Authentication, optional SSR |
-| Backend | Axum + Tokio, validated feedback endpoint, development review guard, 16 KiB body limit | Institutional authorization |
+| Backend | Axum + Tokio, strict validation, 16 KiB body limit, defensive headers, fail-closed development review guard | Institutional authorization |
 | Data | Process-memory development store | PostgreSQL 17, SQLx, migrations, row-level security, append-only audit log |
 | Infrastructure | Local development | Pingora/Envoy, TLS, rate limits, WAF, non-root minimal containers, internal mTLS |
 
@@ -45,9 +45,9 @@ cargo run
 
 The API defaults to `127.0.0.1:3000`; override with `BIND_ADDR`. `GET /api/health` returns `{"status":"ok"}` for process liveness only. Trunk proxies `/api/` to the API without permissive CORS.
 
-`POST /api/feedback` accepts an anonymous category and a 1–2,000-character message, then returns an opaque receipt ID. It does not accept direct identifiers. Submissions currently live only in process memory and disappear on restart; do not use it for real student feedback.
+`POST /api/feedback` accepts an anonymous category and a 1–2,000-character message, then returns an opaque receipt ID. Unexpected JSON fields are rejected so identifiers cannot be added accidentally. API responses include no-store caching and defensive browser security headers. Submissions live only in process memory and disappear on restart; do not use it for real student feedback.
 
-`GET /api/admin/feedback` is disabled by default. For local development only, set `ADMIN_REVIEW_TOKEN` and pass it in the `x-admin-token` header. This temporary guard is not institutional authentication or production authorization. See [the API contract](docs/feedback-api.md).
+`GET /api/admin/feedback` is disabled by default. For local development only, set a randomly generated `ADMIN_REVIEW_TOKEN` of at least 32 bytes and pass it in the `x-admin-token` header. Short or blank tokens disable the route. This temporary guard is not institutional authentication or production authorization. See [the API contract](docs/feedback-api.md).
 
 ## Verify
 
