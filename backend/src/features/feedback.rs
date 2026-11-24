@@ -12,6 +12,7 @@ pub enum FeedbackCategory {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FeedbackSubmission {
     pub category: FeedbackCategory,
     pub message: String,
