@@ -40,11 +40,15 @@ impl FeedbackStore {
         record
     }
 
-    pub fn list(&self) -> Vec<FeedbackRecord> {
+    pub fn list_page(&self, offset: usize, limit: usize) -> Vec<FeedbackRecord> {
         self.entries
             .read()
             .expect("feedback store lock should not be poisoned")
-            .clone()
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .cloned()
+            .collect()
     }
 }
 
@@ -60,8 +64,9 @@ mod tests {
             message: "The library lighting could be improved.".into(),
         });
 
-        assert_eq!(store.list().len(), 1);
-        assert_eq!(store.list()[0].id, saved.id);
+        let entries = store.list_page(0, 1);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].id, saved.id);
     }
 
     #[test]
@@ -78,8 +83,23 @@ mod tests {
             });
         }
 
-        let entries = store.list();
+        let entries = store.list_page(0, MAX_STORED_RECORDS);
         assert_eq!(entries.len(), MAX_STORED_RECORDS);
         assert!(!entries.iter().any(|entry| entry.id == first.id));
+    }
+
+    #[test]
+    fn returns_only_the_requested_page() {
+        let store = FeedbackStore::default();
+        for message in ["first", "second", "third"] {
+            store.submit(ValidatedFeedback {
+                category: FeedbackCategory::Other,
+                message: message.into(),
+            });
+        }
+
+        let page = store.list_page(1, 1);
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].message, "second");
     }
 }

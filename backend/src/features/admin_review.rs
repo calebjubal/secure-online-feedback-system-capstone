@@ -1,13 +1,16 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
 
 use super::feedback_store::{FeedbackRecord, FeedbackStore};
+use serde::Deserialize;
 
 const MIN_ADMIN_TOKEN_BYTES: usize = 32;
+const DEFAULT_PAGE_SIZE: usize = 50;
+const MAX_PAGE_SIZE: usize = 100;
 
 #[derive(Clone)]
 struct AdminReviewState {
@@ -28,6 +31,7 @@ pub fn routes(store: FeedbackStore, token: Option<String>) -> Router {
 async fn list_feedback(
     State(state): State<AdminReviewState>,
     headers: HeaderMap,
+    Query(page): Query<Pagination>,
 ) -> Result<Json<Vec<FeedbackRecord>>, StatusCode> {
     let token = headers
         .get("x-admin-token")
@@ -35,7 +39,15 @@ async fn list_feedback(
     if token.is_none_or(|value| !constant_time_equal(value.as_bytes(), state.token.as_bytes())) {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    Ok(Json(state.store.list()))
+    let limit = page.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
+    let offset = page.offset.unwrap_or_default();
+    Ok(Json(state.store.list_page(offset, limit)))
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct Pagination {
+    limit: Option<usize>,
+    offset: Option<usize>,
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
