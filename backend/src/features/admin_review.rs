@@ -41,7 +41,13 @@ async fn list_feedback(
     }
     let limit = page.limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
     let offset = page.offset.unwrap_or_default();
-    Ok(Json(state.store.list_page(offset, limit)))
+    Ok(Json(
+        state
+            .store
+            .list_page(offset, limit)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+    ))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -83,10 +89,13 @@ mod tests {
     async fn authorized_review_returns_a_bounded_page() {
         let store = FeedbackStore::default();
         for message in ["first", "second"] {
-            store.submit(ValidatedFeedback {
-                category: FeedbackCategory::Other,
-                message: message.into(),
-            });
+            store
+                .submit(ValidatedFeedback {
+                    category: FeedbackCategory::Other,
+                    message: message.into(),
+                })
+                .await
+                .unwrap();
         }
         let response = routes(store, Some("review-token-that-is-at-least-32-bytes".into()))
             .oneshot(
@@ -102,6 +111,6 @@ mod tests {
         let body = to_bytes(response.into_body(), 2048).await.unwrap();
         let records: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0]["message"], "first");
+        assert_eq!(records[0]["message"], "second");
     }
 }

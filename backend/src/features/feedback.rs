@@ -11,6 +11,17 @@ pub enum FeedbackCategory {
     Other,
 }
 
+impl FeedbackCategory {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Teaching => "teaching",
+            Self::CourseContent => "course-content",
+            Self::Facilities => "facilities",
+            Self::Other => "other",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FeedbackSubmission {

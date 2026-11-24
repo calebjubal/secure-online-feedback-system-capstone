@@ -31,7 +31,11 @@ async fn submit(
     }
     let Json(submission) = payload.map_err(|_| ApiError::invalid_json())?;
     let feedback = submission.validate().map_err(ApiError::validation)?;
-    let record = store.submit(feedback);
+    let record = store.submit(feedback).await.map_err(|_| ApiError {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "storage_unavailable",
+        message: "Feedback could not be saved. Please try again later.",
+    })?;
     Ok((StatusCode::CREATED, Json(FeedbackReceipt { id: record.id })))
 }
 

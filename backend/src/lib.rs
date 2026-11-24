@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-mod features;
 pub mod config;
+mod features;
 
 use axum::{
     extract::DefaultBodyLimit,
@@ -14,12 +14,28 @@ use features::feedback_store::FeedbackStore;
 
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
 
+#[cfg(test)]
 pub fn app() -> Router {
     app_with_admin_token(None)
 }
 
+#[cfg(test)]
 pub fn app_with_admin_token(admin_token: Option<String>) -> Router {
     let feedback_store = FeedbackStore::default();
+    router(feedback_store, admin_token)
+}
+
+pub async fn persistent_app(
+    database_url: &str,
+    admin_token: Option<String>,
+) -> Result<Router, sqlx::Error> {
+    Ok(router(
+        FeedbackStore::connect(database_url).await?,
+        admin_token,
+    ))
+}
+
+fn router(feedback_store: FeedbackStore, admin_token: Option<String>) -> Router {
     Router::new()
         .nest(
             "/api",

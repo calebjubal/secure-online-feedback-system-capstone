@@ -1,105 +1,114 @@
-use std::sync::{Arc, RwLock};
-
 use serde::Serialize;
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use uuid::Uuid;
 
-use super::feedback::{FeedbackCategory, ValidatedFeedback};
+use super::feedback::ValidatedFeedback;
 
-pub const MAX_STORED_RECORDS: usize = 10_000;
-
-/// Development-only storage. Replace this with a reviewed PostgreSQL-backed
-/// repository before deploying or collecting real feedback.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct FeedbackStore {
-    entries: Arc<RwLock<Vec<FeedbackRecord>>>,
+    pool: Option<PgPool>,
+    #[cfg(test)]
+    entries: std::sync::Arc<std::sync::RwLock<Vec<FeedbackRecord>>>,
+}
+
+#[cfg(test)]
+impl Default for FeedbackStore {
+    fn default() -> Self {
+        Self {
+            pool: None,
+            entries: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct FeedbackRecord {
     pub id: Uuid,
-    pub category: FeedbackCategory,
+    pub category: String,
     pub message: String,
+    pub created_at: String,
 }
 
 impl FeedbackStore {
-    pub fn submit(&self, feedback: ValidatedFeedback) -> FeedbackRecord {
-        let record = FeedbackRecord {
-            id: Uuid::new_v4(),
-            category: feedback.category,
-            message: feedback.message,
-        };
-        let mut entries = self
-            .entries
-            .write()
-            .expect("feedback store lock should not be poisoned");
-        entries.push(record.clone());
-        if entries.len() > MAX_STORED_RECORDS {
-            let expired = entries.len() - MAX_STORED_RECORDS;
-            entries.drain(..expired);
-        }
-        record
+    pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect(url)
+            .await?;
+        // Fail startup when the schema has not been installed. Runtime cannot create tables.
+        sqlx::query("SELECT id, category, message, created_at FROM feedback LIMIT 0")
+            .execute(&pool)
+            .await?;
+        Ok(Self {
+            pool: Some(pool),
+            #[cfg(test)]
+            entries: Default::default(),
+        })
     }
 
-    pub fn list_page(&self, offset: usize, limit: usize) -> Vec<FeedbackRecord> {
-        self.entries
-            .read()
-            .expect("feedback store lock should not be poisoned")
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn preserves_a_submitted_feedback_record() {
-        let store = FeedbackStore::default();
-        let saved = store.submit(ValidatedFeedback {
-            category: FeedbackCategory::Facilities,
-            message: "The library lighting could be improved.".into(),
-        });
-
-        let entries = store.list_page(0, 1);
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].id, saved.id);
-    }
-
-    #[test]
-    fn evicts_oldest_records_at_the_memory_bound() {
-        let store = FeedbackStore::default();
-        let first = store.submit(ValidatedFeedback {
-            category: FeedbackCategory::Other,
-            message: "first".into(),
-        });
-        for index in 1..=MAX_STORED_RECORDS {
-            store.submit(ValidatedFeedback {
-                category: FeedbackCategory::Other,
-                message: index.to_string(),
+    pub async fn submit(&self, feedback: ValidatedFeedback) -> Result<FeedbackRecord, sqlx::Error> {
+        let id = Uuid::new_v4();
+        let category = feedback.category.as_str().to_owned();
+        if let Some(pool) = &self.pool {
+            let row = sqlx::query("INSERT INTO feedback (id, category, message) VALUES ($1, $2, $3) RETURNING to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS created_at")
+                .bind(id).bind(&category).bind(&feedback.message).fetch_one(pool).await?;
+            return Ok(FeedbackRecord {
+                id,
+                category,
+                message: feedback.message,
+                created_at: row.try_get("created_at")?,
             });
         }
-
-        let entries = store.list_page(0, MAX_STORED_RECORDS);
-        assert_eq!(entries.len(), MAX_STORED_RECORDS);
-        assert!(!entries.iter().any(|entry| entry.id == first.id));
+        #[cfg(test)]
+        {
+            let record = FeedbackRecord {
+                id,
+                category,
+                message: feedback.message,
+                created_at: "2026-01-01T00:00:00Z".into(),
+            };
+            self.entries.write().unwrap().push(record.clone());
+            Ok(record)
+        }
+        #[cfg(not(test))]
+        Err(sqlx::Error::PoolClosed)
     }
 
-    #[test]
-    fn returns_only_the_requested_page() {
-        let store = FeedbackStore::default();
-        for message in ["first", "second", "third"] {
-            store.submit(ValidatedFeedback {
-                category: FeedbackCategory::Other,
-                message: message.into(),
-            });
+    pub async fn list_page(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<FeedbackRecord>, sqlx::Error> {
+        if let Some(pool) = &self.pool {
+            let rows = sqlx::query("SELECT id, category, message, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS created_at FROM feedback ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2")
+                .bind(limit as i64).bind(offset as i64).fetch_all(pool).await?;
+            return rows
+                .into_iter()
+                .map(|row| {
+                    Ok(FeedbackRecord {
+                        id: row.try_get("id")?,
+                        category: row.try_get("category")?,
+                        message: row.try_get("message")?,
+                        created_at: row.try_get("created_at")?,
+                    })
+                })
+                .collect();
         }
-
-        let page = store.list_page(1, 1);
-        assert_eq!(page.len(), 1);
-        assert_eq!(page[0].message, "second");
+        #[cfg(test)]
+        {
+            Ok(self
+                .entries
+                .read()
+                .unwrap()
+                .iter()
+                .rev()
+                .skip(offset)
+                .take(limit)
+                .cloned()
+                .collect())
+        }
+        #[cfg(not(test))]
+        Err(sqlx::Error::PoolClosed)
     }
 }
