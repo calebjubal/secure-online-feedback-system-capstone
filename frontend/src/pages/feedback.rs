@@ -1,5 +1,4 @@
-use leptos::prelude::*;
-use leptos::task::spawn_local;
+use leptos::{prelude::*, task::spawn_local};
 
 #[component]
 pub fn FeedbackForm() -> impl IntoView {
@@ -7,94 +6,75 @@ pub fn FeedbackForm() -> impl IntoView {
     let (message, set_message) = signal(String::new());
     let (status, set_status) = signal(None::<String>);
     let (submitting, set_submitting) = signal(false);
-
-    let submit_feedback = move |event: leptos::ev::SubmitEvent| {
+    let submit = move |event: leptos::ev::SubmitEvent| {
         event.prevent_default();
-        if submitting.get_untracked() {
+        if submitting.get_untracked() { return; }
+        let text = message.get_untracked().trim().to_owned();
+        if text.is_empty() || text.chars().count() > 2000 {
+            set_status.set(Some("Enter feedback between 1 and 2,000 characters.".into()));
             return;
         }
-        let category = category.get_untracked();
-        let message = message.get_untracked();
         set_submitting.set(true);
-        set_status.set(Some("Submitting feedback…".into()));
-
+        set_status.set(None);
         spawn_local(async move {
-            let payload = serde_json::json!({"category": category, "message": message});
-            let request = gloo_net::http::Request::post("/api/feedback")
-                .header("content-type", "application/json")
-                .body(payload.to_string());
+            let payload = serde_json::json!({"category": category.get_untracked(), "message": text});
+            let request = gloo_net::http::Request::post("/api/feedback").header("content-type", "application/json").body(payload.to_string());
             match request {
                 Ok(request) => match request.send().await {
-                    Ok(response) if response.ok() => {
-                        set_status.set(Some("Thank you. Your feedback was submitted.".into()));
+                    Ok(response) if response.status() == 201 => {
                         set_message.set(String::new());
+                        set_status.set(Some("Your feedback has been received. Thank you.".into()));
                     }
                     Ok(response) => set_status.set(Some(match response.status() {
-                        400 => {
-                            "The request was invalid. Please review your feedback and try again."
-                                .into()
-                        }
-                        413 => {
-                            "That feedback is too large. Please shorten it and try again.".into()
-                        }
-                        415 => {
-                            "The feedback format was not accepted. Please refresh and try again."
-                                .into()
-                        }
-                        422 => "Please enter a message before submitting.".into(),
-                        _ => {
-                            "Your feedback could not be submitted. Please try again shortly.".into()
-                        }
-                    })),
-                    Err(_) => set_status.set(Some("Unable to reach the feedback service.".into())),
+                        413 => "Your feedback is too large. Please shorten it.",
+                        400 | 422 => "Check your category and enter 1–2,000 characters.",
+                        429 => "Too many requests. Please wait a moment before trying again.",
+                        _ => "We couldn’t save your feedback. Your message is still here; please try again.",
+                    }.into())),
+                    Err(_) => set_status.set(Some("We couldn’t reach the service. Your message is still here. Check your connection before retrying.".into())),
                 },
-                Err(_) => set_status.set(Some("Unable to prepare the feedback request.".into())),
+                Err(_) => set_status.set(Some("We couldn’t prepare your submission. Please try again.".into())),
             }
             set_submitting.set(false);
         });
     };
 
     view! {
-        <a class="skip-link" href="#main">"Skip to content"</a>
-        <header><a href="#main">"Secure Feedback"</a><span>"Capstone · Development"</span></header>
-        <main id="main">
-            <p class="eyebrow">"A space for better conversations"</p>
-            <h1>"Your feedback can shape what comes next."</h1>
-            <p class="intro">"A student feedback platform built with Rust, with privacy and responsible access as design goals."</p>
-            <section aria-labelledby="feedback-title">
-                <h2 id="feedback-title">"Share feedback"</h2>
-                <p class="notice">"Do not include your name, contact details, student number, or other personal information. Development submissions are kept only in memory and are lost when the server restarts."</p>
-                <form aria-busy=move || submitting.get().to_string() on:submit=submit_feedback>
-                    <label for="category">"Category"</label>
-                    <select id="category" name="category" autocomplete="off" on:change=move |event| set_category.set(event_target_value(&event))>
-                        <option value="teaching">"Teaching"</option>
-                        <option value="course-content">"Course content"</option>
-                        <option value="facilities">"Facilities"</option>
-                        <option value="other">"Other"</option>
-                    </select>
-                    <label for="message">"Feedback"</label>
-                    <textarea
-                        id="message"
-                        name="message"
-                        aria-describedby="message-help message-count"
-                        maxlength="2000"
-                        required
-                        rows="7"
-                        spellcheck="true"
-                        on:input=move |event| set_message.set(event_target_value(&event))
-                    ></textarea>
-                    <div class="field-meta">
-                        <small id="message-help">"Keep your feedback specific and respectful."</small>
-                        <small id="message-count">{move || format!("{}/2,000 characters", message.get().chars().count())}</small>
-                    </div>
-                    <button type="submit" disabled=move || submitting.get()>
-                        {move || if submitting.get() { "Submitting…" } else { "Submit feedback" }}
-                    </button>
+        <main id="main" class="public-layout">
+            <div class="public-intro">
+                <p class="eyebrow"><span class="tiny-dot"></span>"A BETTER EXPERIENCE STARTS WITH YOU"</p>
+                <h1>"Your perspective."<br/><em>"Our next step."</em></h1>
+                <p class="lead">"Tell us what’s working, what could be better, and what matters to you. Help shape a better learning experience."</p>
+                <div class="how-it-works"><p class="section-label">"MAKE IT CONSTRUCTIVE"</p>
+                    <div><span>"01"</span><p><strong>"Choose the right category"</strong><small>"Help the review team understand the context."</small></p></div>
+                    <div><span>"02"</span><p><strong>"Share your experience"</strong><small>"Be specific, respectful, and describe what could improve."</small></p></div>
+                    <div><span>"03"</span><p><strong>"Send it for review"</strong><small>"Your feedback goes to the administrator inbox."</small></p></div>
+                </div>
+                <aside class="privacy-note"><span aria-hidden="true">"↳"</span><p><strong>"Your words are enough."</strong>" We don’t ask for your name, email, or student number. Avoid including personal information in your message."</p></aside>
+            </div>
+            <section class="form-card" aria-labelledby="form-title">
+                <div class="card-heading"><span class="section-label">"FEEDBACK FORM"</span><span class="badge">"Open for feedback"</span></div>
+                <h2 id="form-title">"What’s on your mind?"</h2><p class="muted">"A little detail can make a real difference."</p>
+                <form on:submit=submit aria-busy=move || submitting.get().to_string()>
+                    <fieldset disabled=move || submitting.get()>
+                        <legend>"01 — Select a category"</legend>
+                        <div class="category-grid">
+                            {[("teaching", "Teaching", "Classes & instruction"), ("course-content", "Course content", "Materials & curriculum"), ("facilities", "Facilities", "Spaces & resources"), ("other", "Something else", "Anything on your mind")].into_iter().map(move |(value, label, description)| view! {
+                                <label class="category-option" class:selected=move || category.get() == value>
+                                    <input type="radio" name="category" value=value prop:checked=move || category.get() == value on:change=move |_| set_category.set(value.to_owned())/>
+                                    <span><strong>{label}</strong><small>{description}</small></span>
+                                </label>
+                            }).collect_view()}
+                        </div>
+                        <label class="message-label" for="message">"02 — Your feedback"<span>"Required"</span></label>
+                        <textarea id="message" name="message" required rows="7" prop:value=move || message.get() aria-describedby="message-help message-count" placeholder="What happened? What would you like to see improve?" on:input=move |event| set_message.set(event_target_value(&event))></textarea>
+                        <div class="field-meta"><small id="message-help">"Please leave out personal details."</small><small id="message-count" class:over-limit=move || message.get().chars().count() > 2000>{move || format!("{} / 2,000", message.get().chars().count())}</small></div>
+                        <div class="form-bottom"><p>"Read it once more. Ready when you are."</p><button type="submit" class="button primary">{move || if submitting.get() { "Sending…" } else { "Send feedback ↗" }}</button></div>
+                    </fieldset>
+                    <p class="form-status" role="status">{move || status.get()}</p>
                 </form>
-                <p class="status" aria-live="polite">{move || status.get().unwrap_or_default()}</p>
+                <div class="card-footnote"><span aria-hidden="true">"○"</span>"Reviewed by authorized administrators. No public posting."</div>
             </section>
         </main>
-        <footer>"Development preview · Please do not enter personal information."</footer>
     }
 }
-
