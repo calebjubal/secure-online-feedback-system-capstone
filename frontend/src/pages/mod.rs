@@ -29,12 +29,23 @@ pub fn HomePage() -> impl IntoView {
                         set_status.set(Some("Thank you. Your feedback was submitted.".into()));
                         set_message.set(String::new());
                     }
-                    Ok(response) => {
-                        set_status.set(Some(format!(
-                            "Your feedback could not be submitted (HTTP {}). Please check the form and try again.",
-                            response.status()
-                        )));
-                    }
+                    Ok(response) => set_status.set(Some(match response.status() {
+                        400 => {
+                            "The request was invalid. Please review your feedback and try again."
+                                .into()
+                        }
+                        413 => {
+                            "That feedback is too large. Please shorten it and try again.".into()
+                        }
+                        415 => {
+                            "The feedback format was not accepted. Please refresh and try again."
+                                .into()
+                        }
+                        422 => "Please enter a message before submitting.".into(),
+                        _ => {
+                            "Your feedback could not be submitted. Please try again shortly.".into()
+                        }
+                    })),
                     Err(_) => set_status.set(Some("Unable to reach the feedback service.".into())),
                 },
                 Err(_) => set_status.set(Some("Unable to prepare the feedback request.".into())),
@@ -53,7 +64,7 @@ pub fn HomePage() -> impl IntoView {
             <section aria-labelledby="feedback-title">
                 <h2 id="feedback-title">"Share feedback"</h2>
                 <p class="notice">"Do not include your name, contact details, student number, or other personal information. Development submissions are kept only in memory and are lost when the server restarts."</p>
-                <form on:submit=submit_feedback>
+                <form aria-busy=move || submitting.get().to_string() on:submit=submit_feedback>
                     <label for="category">"Category"</label>
                     <select id="category" name="category" autocomplete="off" on:change=move |event| set_category.set(event_target_value(&event))>
                         <option value="teaching">"Teaching"</option>
