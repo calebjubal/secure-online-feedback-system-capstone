@@ -1,5 +1,6 @@
 mod feedback;
 mod api;
+mod admin;
 
 use leptos::prelude::*;
 
@@ -16,7 +17,7 @@ pub fn HomePage() -> impl IntoView {
             </nav>
         </header>
         {if admin {
-            view! { <main id="main"><h1>"Feedback inbox"</h1><p>"Administrator access is required to view submissions."</p></main> }.into_any()
+            view! { <admin::AdminPortal/> }.into_any()
         } else { view! { <feedback::FeedbackForm/> }.into_any() }}
         <footer class="site-footer"><a href="/">"Secure Feedback"</a><p>"Thoughtful feedback. Meaningful change."</p><a href="/admin">"Administrator access"</a></footer>
     }
