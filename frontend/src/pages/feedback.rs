@@ -90,7 +90,7 @@ pub fn FeedbackForm() -> impl IntoView {
                         </div>
                         <label class="message-label" for="message">"02 — Your feedback"<span>"Required"</span></label>
                         <textarea id="message" name="message" required rows="7" prop:value=move || message.get() aria-describedby="message-help message-count" placeholder="What happened? What would you like to see improve?" on:input=move |event| set_message.set(event_target_value(&event))></textarea>
-                        <div class="field-meta"><small id="message-help">"Please leave out personal details."</small><small id="message-count" class:over-limit=move || message.get().chars().count() > 2000>{move || format!("{} / 2,000", message.get().chars().count())}</small></div>
+                        <div class="field-meta"><small id="message-help">"Please leave out personal details."</small><small id="message-count" class:over-limit={move || message.get().chars().count() > 2000}>{move || format!("{} / 2,000", message.get().chars().count())}</small></div>
                         <div class="form-bottom"><p>"Read it once more. Ready when you are."</p><button type="submit" class="button primary">{move || if submitting.get() { "Sending…" } else { "Send feedback ↗" }}</button></div>
                     </fieldset>
                     <p class="form-status" role="status">{move || status.get()}</p>

@@ -225,6 +225,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn submission_enforces_actual_body_limit() {
+        let response = app().oneshot(Request::post("/api/feedback").header("content-type", "application/json")
+            .body(Body::from(serde_json::json!({"category":"other", "message":"a".repeat(MAX_BODY_BYTES)}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn review_requires_session_and_returns_only_saved_records() {
+        let router = app_with_admin_token(Some("test-only-administrator-credential-123456".into()));
+        let login = router
+            .clone()
+            .oneshot(
+                Request::post("/api/admin/session")
+                    .header("content-type", "application/json")
+                    .header("origin", "http://127.0.0.1:8080")
+                    .body(Body::from(
+                        r#"{"credential":"test-only-administrator-credential-123456"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let cookie = login.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let empty = router
+            .clone()
+            .oneshot(
+                Request::get("/api/admin/feedback")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&to_bytes(empty.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(value["items"], serde_json::json!([]));
+        for text in [
+            "First submitted message",
+            "<script>alert('text only')</script>",
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::post("/api/feedback")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::json!({"category":"other", "message":text}).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::CREATED);
+        }
+        let response = router
+            .clone()
+            .oneshot(
+                Request::get("/api/admin/feedback?limit=1")
+                    .header("cookie", &cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(
+            value["items"][0]["message"],
+            "<script>alert('text only')</script>"
+        );
+        assert_eq!(value["has_more"], true);
+        assert_eq!(value["next_offset"], 1);
+        for query in ["limit=0", "limit=101", "offset=1000001", "limit=bad"] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::get(format!("/api/admin/feedback?{query}"))
+                        .header("cookie", &cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        let legacy = router
+            .oneshot(
+                Request::get("/api/admin/feedback")
+                    .header("x-admin-token", "test-only-administrator-credential-123456")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(legacy.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn admin_review_requires_a_configured_token() {
         let response = app_with_admin_token(Some("review-token-that-is-at-least-32-bytes".into()))
             .oneshot(
