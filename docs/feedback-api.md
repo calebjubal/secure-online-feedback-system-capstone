@@ -1,67 +1,43 @@
-# Feedback API contract (development foundation)
+# Feedback API contract
 
-This document defines the first API contract before a persistent data store or
-identity provider is introduced. It is deliberately small so the validation
-and authorization boundaries are clear and testable.
+All paths are under `/api`. JSON responses use `Cache-Control: no-store`; errors never echo submitted messages or credentials. Requests are limited to 16 KiB by buffered extractors. APIs use the same browser origin; no permissive CORS is configured.
 
-## Submit feedback
+## Public endpoints
 
-`POST /api/feedback`
+`GET /health` returns `200 {"status":"ok"}` for process liveness only, not database readiness.
 
-```json
-{
-  "category": "teaching",
-  "message": "The weekly examples made the topic much easier to understand."
-}
-```
-
-- `category` must be one of `teaching`, `course-content`, `facilities`, or
-  `other`.
-- `message` is required after trimming and may contain 1–2,000 Unicode
-  characters.
-- No other JSON fields are accepted. This keeps direct identifiers out of the
-  anonymous contract unless the anonymity policy is deliberately changed.
-- The endpoint does not accept a name, email address, account identifier, or
-  other direct identifier. Do not add those fields without an approved
-  anonymity policy.
-- A successful submission receives `201 Created` and an opaque feedback ID.
-
-The request must use `Content-Type: application/json`. Invalid JSON and
-unexpected fields return `400 Bad Request`; missing or invalid message values
-return `422 Unprocessable Entity`; other media types return `415 Unsupported
-Media Type`.
-
-## Administrative review
-
-`GET /api/admin/feedback`
-
-The development server protects this route with an `x-admin-token` header.
-It is disabled unless `ADMIN_REVIEW_TOKEN` is configured with at least 32
-bytes. Token comparison does not return early on the first mismatched byte.
-This is a temporary development guard, **not** a replacement for institutional
-authentication, role-based authorization, or row-level database policies.
-
-Review results are bounded. Use `?limit=50&offset=0`; the default limit is 50
-and the maximum limit is 100. Results are ordered by insertion order in this
-development store.
-
-API responses set `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
-`X-Frame-Options: DENY`, a restrictive content security policy, and a
-no-referrer policy. The server also rejects request bodies over 16 KiB.
-
-## Error responses
-
-Expected client errors return JSON in this form:
+`POST /feedback` requires `Content-Type: application/json` and exactly two fields:
 
 ```json
-{
-  "error": "validation_failed",
-  "message": "message must not be empty"
-}
+{"category":"teaching","message":"A specific observation and constructive suggestion."}
 ```
 
-The `error` value is one of `validation_failed`, `invalid_json`, or
-`unsupported_media_type` for the documented submission failures.
+This is a request example, not a seeded record. Category is `teaching`, `course-content`, `facilities` or `other`. Message is trimmed and must contain 1–2,000 Unicode scalar values. Identity fields and other unexpected fields are rejected. A successful PostgreSQL insert returns `201 {"id":"<uuid>"}`. The receipt is a reference, not a public read-access token. There is no public lookup endpoint.
 
-The API never includes the submitted feedback text in an error response or
-application log.
+| Status | Meaning |
+| --- | --- |
+| 400 | Malformed JSON, invalid category, missing or unknown fields |
+| 413 | Buffered body exceeds 16 KiB |
+| 415 | Content type is not application/json |
+| 422 | Empty or overlong message |
+| 503 | Storage failure; no success receipt is returned |
+
+A lost connection after an insert can leave a successfully stored record without a receipt reaching the client. Automatic retries are not used; user guidance warns of duplicate risk. Idempotency keys are a future contract change.
+
+## Administrator session
+
+`POST /admin/session` accepts `{"credential":"<server-configured credential>"}` with JSON content type and an exact `Origin` matching `APP_ORIGIN`. Success returns 204 and an HttpOnly, SameSite=Strict session cookie (Secure, `__Host-` prefixed in HTTPS mode), max age 1,800 seconds. The credential is never returned. Invalid credential: 401; origin mismatch/missing: 403; login budget/session capacity exceeded: 429; disabled sign-in: 503. There is no shipped credential.
+
+`GET /admin/session`: 204 for a valid session, otherwise 401.
+
+`DELETE /admin/session`: requires the configured Origin, revokes the presented session and clears its cookie, returns 204. Signing out does not delete feedback. Sessions are memory-held credentials only, expire after 30 minutes, and are invalidated by API restart.
+
+## Review
+
+`GET /admin/feedback?limit=20&offset=0` requires the session cookie; a header token alone is insufficient. Missing/invalid/expired session returns 401. Invalid query returns 400. Limit: 1–100; offset: 0–1,000,000. Unknown query fields are rejected. Storage failure returns 503.
+
+```json
+{"items":[],"has_more":false,"next_offset":null}
+```
+
+An empty database returns this genuine empty page. Each item contains `id`, `category`, `message` and `created_at` (UTC RFC3339). Results are newest first with ID tie-breaking. One extra record is queried to compute `has_more`; no invented or expensive total count is exposed. `next_offset` is provided only when another page exists. Concurrent inserts may shift offset pages; refresh starts at offset zero. Authenticated detail views use the already loaded record and render its message as text.
