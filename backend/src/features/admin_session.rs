@@ -177,3 +177,129 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     }
     difference == 0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    const TOKEN: &str = "test-only-administrator-credential-123456";
+    fn auth() -> AdminAuth {
+        AdminAuth::new(Some(TOKEN.into()), "https://feedback.test".into(), true)
+    }
+    fn request(origin: &str, credential: &str) -> Request<Body> {
+        Request::post("/admin/session")
+            .header("origin", origin)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"credential": credential}).to_string(),
+            ))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn login_sets_protected_cookie_and_logout_revokes_it() {
+        let auth = auth();
+        let router = routes(auth.clone());
+        let response = router
+            .clone()
+            .oneshot(request("https://feedback.test", TOKEN))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap();
+        for flag in [
+            "HttpOnly",
+            "Secure",
+            "SameSite=Strict",
+            "Max-Age=1800",
+            "__Host-feedback_session=",
+        ] {
+            assert!(cookie.contains(flag));
+        }
+        let cookie = cookie.split(';').next().unwrap().to_owned();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, cookie.parse().unwrap());
+        assert!(auth.authorized(&headers));
+        let response = router
+            .oneshot(
+                Request::delete("/admin/session")
+                    .header("origin", "https://feedback.test")
+                    .header("cookie", cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(!auth.authorized(&headers));
+    }
+
+    #[tokio::test]
+    async fn login_rejects_foreign_origins_and_wrong_credentials() {
+        let router = routes(auth());
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request("https://attacker.test", TOKEN))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            router
+                .clone()
+                .oneshot(request("https://feedback.test", "wrong"))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            router
+                .oneshot(request("https://feedback.test", &format!("{TOKEN}extra")))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn login_attempts_are_bounded() {
+        let router = routes(auth());
+        for _ in 0..20 {
+            router
+                .clone()
+                .oneshot(request("https://feedback.test", "wrong"))
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            router
+                .oneshot(request("https://feedback.test", TOKEN))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[test]
+    fn expired_sessions_are_rejected() {
+        let auth = auth();
+        auth.state
+            .lock()
+            .unwrap()
+            .sessions
+            .insert("expired".into(), Instant::now() - TTL);
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "__Host-feedback_session=expired".parse().unwrap(),
+        );
+        assert!(!auth.authorized(&headers));
+    }
+}
