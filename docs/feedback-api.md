@@ -26,6 +26,11 @@ and authorization boundaries are clear and testable.
   anonymity policy.
 - A successful submission receives `201 Created` and an opaque feedback ID.
 
+The request must use `Content-Type: application/json`. Invalid JSON and
+unexpected fields return `400 Bad Request`; missing or invalid message values
+return `422 Unprocessable Entity`; other media types return `415 Unsupported
+Media Type`.
+
 ## Administrative review
 
 `GET /api/admin/feedback`
@@ -35,6 +40,10 @@ It is disabled unless `ADMIN_REVIEW_TOKEN` is configured with at least 32
 bytes. Token comparison does not return early on the first mismatched byte.
 This is a temporary development guard, **not** a replacement for institutional
 authentication, role-based authorization, or row-level database policies.
+
+Review results are bounded. Use `?limit=50&offset=0`; the default limit is 50
+and the maximum limit is 100. Results are ordered by insertion order in this
+development store.
 
 API responses set `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, a restrictive content security policy, and a
@@ -50,6 +59,9 @@ Expected client errors return JSON in this form:
   "message": "message must not be empty"
 }
 ```
+
+The `error` value is one of `validation_failed`, `invalid_json`, or
+`unsupported_media_type` for the documented submission failures.
 
 The API never includes the submitted feedback text in an error response or
 application log.
