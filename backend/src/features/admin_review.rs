@@ -63,12 +63,45 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::constant_time_equal;
+    use axum::{body::to_bytes, body::Body, http::Request};
+    use tower::ServiceExt;
+
+    use super::{constant_time_equal, routes};
+    use crate::features::{
+        feedback::{FeedbackCategory, ValidatedFeedback},
+        feedback_store::FeedbackStore,
+    };
 
     #[test]
     fn compares_tokens_without_accepting_prefixes() {
         assert!(constant_time_equal(b"same-token", b"same-token"));
         assert!(!constant_time_equal(b"same-token", b"same-token-plus"));
         assert!(!constant_time_equal(b"same-token", b"different"));
+    }
+
+    #[tokio::test]
+    async fn authorized_review_returns_a_bounded_page() {
+        let store = FeedbackStore::default();
+        for message in ["first", "second"] {
+            store.submit(ValidatedFeedback {
+                category: FeedbackCategory::Other,
+                message: message.into(),
+            });
+        }
+        let response = routes(store, Some("review-token-that-is-at-least-32-bytes".into()))
+            .oneshot(
+                Request::get("/admin/feedback?limit=1")
+                    .header("x-admin-token", "review-token-that-is-at-least-32-bytes")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let body = to_bytes(response.into_body(), 2048).await.unwrap();
+        let records: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["message"], "first");
     }
 }
