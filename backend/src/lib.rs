@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod features;
+pub mod config;
 
 use axum::{
     extract::DefaultBodyLimit,
