@@ -1,6 +1,6 @@
 use axum::{
-    extract::State,
-    http::StatusCode,
+    extract::{rejection::JsonRejection, State},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
@@ -18,8 +18,18 @@ pub fn routes(store: FeedbackStore) -> Router {
 
 async fn submit(
     State(store): State<FeedbackStore>,
-    Json(submission): Json<FeedbackSubmission>,
+    headers: HeaderMap,
+    payload: Result<Json<FeedbackSubmission>, JsonRejection>,
 ) -> Result<(StatusCode, Json<FeedbackReceipt>), ApiError> {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim);
+    if content_type != Some("application/json") {
+        return Err(ApiError::unsupported_media_type());
+    }
+    let Json(submission) = payload.map_err(|_| ApiError::invalid_json())?;
     let feedback = submission.validate().map_err(ApiError::validation)?;
     let record = store.submit(feedback);
     Ok((StatusCode::CREATED, Json(FeedbackReceipt { id: record.id })))
@@ -38,6 +48,7 @@ struct ErrorBody {
 
 struct ApiError {
     status: StatusCode,
+    code: &'static str,
     message: &'static str,
 }
 
@@ -45,7 +56,24 @@ impl ApiError {
     fn validation(error: super::feedback::ValidationError) -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "validation_failed",
             message: error.message(),
+        }
+    }
+
+    fn invalid_json() -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_json",
+            message: "request body must be valid JSON",
+        }
+    }
+
+    fn unsupported_media_type() -> Self {
+        Self {
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            code: "unsupported_media_type",
+            message: "content-type must be application/json",
         }
     }
 }
@@ -55,7 +83,7 @@ impl IntoResponse for ApiError {
         (
             self.status,
             Json(ErrorBody {
-                error: "validation_failed",
+                error: self.code,
                 message: self.message,
             }),
         )

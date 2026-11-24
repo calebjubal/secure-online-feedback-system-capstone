@@ -2,7 +2,13 @@
 
 mod features;
 
-use axum::{extract::DefaultBodyLimit, Router};
+use axum::{
+    extract::DefaultBodyLimit,
+    http::{header, HeaderValue, Request},
+    middleware::{self, Next},
+    response::Response,
+    Router,
+};
 use features::feedback_store::FeedbackStore;
 
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
@@ -21,6 +27,35 @@ pub fn app_with_admin_token(admin_token: Option<String>) -> Router {
                 .merge(features::admin_review::routes(feedback_store, admin_token)),
         )
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(middleware::from_fn(security_headers))
+}
+
+async fn security_headers(request: Request<axum::body::Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::HeaderName::from_static("x-request-id"),
+        HeaderValue::from_str(&uuid::Uuid::new_v4().to_string()).expect("UUID is a valid header"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'; base-uri 'none'"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 #[cfg(test)]
@@ -46,6 +81,10 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()["content-type"], "application/json");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(response.headers()["x-frame-options"], "DENY");
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert!(response.headers()["x-request-id"].to_str().unwrap().len() == 36);
         let body = to_bytes(response.into_body(), 1024).await.unwrap();
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
@@ -106,8 +145,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn feedback_submission_rejects_non_json_content_types() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "text/plain")
+                    .body(Body::from("feedback"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"unsupported_media_type","message":"content-type must be application/json"})
+        );
+    }
+
+    #[tokio::test]
+    async fn feedback_submission_rejects_malformed_json_without_echoing_body() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"message":"unterminated"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"invalid_json","message":"request body must be valid JSON"})
+        );
+    }
+
+    #[tokio::test]
+    async fn feedback_submission_rejects_unexpected_fields() {
+        let response = app()
+            .oneshot(
+                Request::post("/api/feedback")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"category":"other","message":"Useful","email":"student@example.com"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn admin_review_requires_a_configured_token() {
-        let response = app_with_admin_token(Some("review-token".into()))
+        let response = app_with_admin_token(Some("review-token-that-is-at-least-32-bytes".into()))
             .oneshot(
                 Request::get("/api/admin/feedback")
                     .body(Body::empty())

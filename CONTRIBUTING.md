@@ -2,7 +2,7 @@
 
 ## Before starting
 
-Read [README.md](README.md) for scope and local setup. This repository is a starter: authentication, persistence, and production security controls remain future work. Discuss changes to anonymity, permissions, retention, or deployment assumptions before implementing them.
+Read [README.md](README.md) for scope and local setup. This repository is a hardened development foundation, not a production deployment. Authentication, persistence, retention, edge controls, and institutional security review remain future work. Discuss changes to anonymity, permissions, retention, or deployment assumptions before implementing them.
 
 ## Development setup
 
@@ -39,6 +39,7 @@ Use synthetic feedback only. Keep credentials and local `.env` files out of Git.
 - Validate input on the server, render user text safely, and never log feedback bodies, tokens, or personal information.
 - Do not introduce unsafe Rust without an explicit design review; the current applications forbid it.
 - Add meaningful tests for behavior, especially authorization, validation, and failure paths.
+- Treat feedback text, credentials, tokens, and request metadata as sensitive. Do not add logging or analytics without a documented privacy review.
 
 ## Required checks
 
@@ -51,6 +52,8 @@ cargo test
 ```
 
 Then run `trunk build` from `frontend/`. Check the page in a browser at mobile and desktop widths, with keyboard navigation and visible focus. Start the API and verify `GET /api/health` returns HTTP 200 and `{"status":"ok"}`. Unknown API routes must return 404.
+
+For security-sensitive changes, also test malformed JSON, unexpected fields, non-JSON content types, oversized bodies, missing and invalid admin credentials, pagination bounds, response headers, and that error responses never echo feedback text. Review [the security model](docs/security-model.md) before calling the system production-ready.
 
 Commit the generated `Cargo.lock` for each application once dependency resolution succeeds. The initial scaffolding environment could not reach crates.io, so lockfiles and successful build/test results are pending; formatting was checked. Do not report a blocked check as passing. Record missing tools or network failures and rerun affected checks in a configured environment.
 
