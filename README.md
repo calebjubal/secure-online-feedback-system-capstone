@@ -4,7 +4,7 @@ A Rust capstone for student feedback and authorized administrative review, guide
 
 ## Status
 
-Development foundation only. Submissions are stored in process memory and are lost when the server restarts. The diagram's 500K+ requests is an unverified future target with no defined time window. Rust memory safety does not guarantee zero XSS.
+Development foundation only. The project now includes strict request handling, bounded storage and review pagination, defensive response headers, a fail-closed development review guard, and an accessible feedback form. Submissions are stored in process memory and are lost when the server restarts. The diagram's 500K+ requests is an unverified future target with no defined time window. Rust memory safety does not guarantee zero XSS.
 
 | Layer | Starter | Planned |
 | --- | --- | --- |
@@ -65,8 +65,8 @@ Also run `trunk build` in `frontend/` to verify the browser bundle. Commit each 
 
 1. Define feedback fields, anonymity, retention, and student/admin permissions.
 2. Add database migrations and authorization/RLS integration tests.
-3. Implement validated submissions and admin review with audit events.
-4. Add identity integration, edge protections, deployment hardening, and threat modeling.
+3. Implement validated submissions and bounded development admin review with audit events.
+4. Add identity integration, edge protections, deployment hardening, and threat-model actions from [the security model](docs/security-model.md).
 5. Define and measure load scenarios before making capacity claims.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). No license has been selected yet.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [the security model](docs/security-model.md). No license has been selected yet.
