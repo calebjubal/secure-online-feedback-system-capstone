@@ -5,11 +5,13 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
+use subtle::ConstantTimeEq;
 
 const TTL: Duration = Duration::from_secs(1800);
 
@@ -168,14 +170,9 @@ async fn logout(
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    for index in 0..left.len().max(right.len()) {
-        difference |= usize::from(
-            left.get(index).copied().unwrap_or_default()
-                ^ right.get(index).copied().unwrap_or_default(),
-        );
-    }
-    difference == 0
+    // Compare fixed-size digests with a reviewed primitive instead of a hand-written
+    // byte loop that a compiler could turn into a short-circuit comparison.
+    Sha256::digest(left).ct_eq(&Sha256::digest(right)).into()
 }
 
 #[cfg(test)]

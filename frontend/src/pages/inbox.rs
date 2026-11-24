@@ -30,7 +30,13 @@ pub fn Inbox(on_expired: Callback<()>) -> impl IntoView {
             match result {
                 Ok(response) if response.status() == 200 => {
                     match response.json::<FeedbackPage>().await {
-                        Ok(data) => set_page.set(Some(data)),
+                        Ok(data) => {
+                            if offset.get_untracked() == current_offset
+                                && revision.get_untracked() == generation
+                            {
+                                set_page.set(Some(data));
+                            }
+                        }
                         Err(_) => set_error.set(Some(
                             "The inbox response could not be read. Please refresh.".into(),
                         )),

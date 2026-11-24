@@ -13,6 +13,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio-rustls", "uuid"] }
+sha2 = "0.10"
+subtle = "2"
 
 [dev-dependencies]
 serde_json = "1"

@@ -5,6 +5,24 @@ pub fn AdminPortal() -> impl IntoView {
     let (checking, set_checking) = signal(true);
     let (authorized, set_authorized) = signal(false);
     let (session_notice, set_session_notice) = signal(None::<String>);
+    let check_interval = set_interval_with_handle(move || {
+        if authorized.get_untracked() {
+            spawn_local(async move {
+                match gloo_net::http::Request::get("/api/admin/session").send().await {
+                    Ok(response) if response.status() == 204 => {},
+                    _ => {
+                        set_authorized.set(false);
+                        set_session_notice.set(Some("Your session could not be verified. Sign in again to view feedback.".into()));
+                    }
+                }
+            });
+        }
+    }, std::time::Duration::from_secs(30)).ok();
+    on_cleanup(move || {
+        if let Some(handle) = check_interval {
+            handle.clear();
+        }
+    });
     spawn_local(async move {
         match gloo_net::http::Request::get("/api/admin/session")
             .send()

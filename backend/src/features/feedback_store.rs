@@ -5,20 +5,11 @@ use uuid::Uuid;
 use super::feedback::ValidatedFeedback;
 
 #[derive(Clone)]
+#[cfg_attr(test, derive(Default))]
 pub struct FeedbackStore {
     pool: Option<PgPool>,
     #[cfg(test)]
     entries: std::sync::Arc<std::sync::RwLock<Vec<FeedbackRecord>>>,
-}
-
-#[cfg(test)]
-impl Default for FeedbackStore {
-    fn default() -> Self {
-        Self {
-            pool: None,
-            entries: Default::default(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -33,6 +24,17 @@ impl FeedbackStore {
     pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {
         let pool = PgPoolOptions::new()
             .max_connections(10)
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    sqlx::query("SET statement_timeout = '5s'")
+                        .execute(&mut *connection)
+                        .await?;
+                    sqlx::query("SET lock_timeout = '2s'")
+                        .execute(&mut *connection)
+                        .await?;
+                    Ok(())
+                })
+            })
             .acquire_timeout(std::time::Duration::from_secs(5))
             .connect(url)
             .await?;

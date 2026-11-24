@@ -23,7 +23,9 @@ if (!(Test-Path (Join-Path $data 'PG_VERSION'))) {
 & (Join-Path $PostgresBin 'pg_ctl.exe') -D $data status 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) {
     $argsList = "-D `"$data`" -l `"$(Join-Path $local 'postgres.log')`" -o `"-p 55432 -h 127.0.0.1`" -w start"
-    $process = Start-Process -FilePath (Join-Path $PostgresBin 'pg_ctl.exe') -ArgumentList $argsList -WindowStyle Hidden -Wait -PassThru
+    $process = Start-Process -FilePath (Join-Path $PostgresBin 'pg_ctl.exe') -ArgumentList $argsList -WindowStyle Hidden -PassThru
+    # Wait for pg_ctl itself, not the server process tree it intentionally starts.
+    $process.WaitForExit()
     if ($process.ExitCode -ne 0) { throw 'PostgreSQL start failed; see .local/postgres.log' }
 }
 $previousPassword = $env:PGPASSWORD
